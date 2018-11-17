@@ -2,16 +2,16 @@ package me.seravkin.rpi.sense.led.file
 
 import better.files.Dsl._
 import better.files._
-import cats.effect.IO
+import cats.effect.{IO, Sync}
 
 /** Implementaion for finding SenseHat LED with default name
   */
-object IoFrameBufferFinder extends FrameBufferFinder[IO] {
+final class SyncFrameBufferFinder[F[_]: Sync] extends FrameBufferFinder[F] {
 
   private[this] val senseName = "RPi-Sense FB"
 
   /** @inheritdoc */
-  def get: IO[Option[File]] = IO {
+  def get: F[Option[File]] = Sync[F].delay {
     val graphicsDir = File("/sys/class/graphics")
 
     if (!graphicsDir.exists || !graphicsDir.isDirectory)

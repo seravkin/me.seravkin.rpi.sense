@@ -5,7 +5,7 @@ import cats.data._
 import cats.implicits._
 import cats.syntax.all._
 import me.seravkin.rpi.sense.led._
-import me.seravkin.rpi.sense.led.file.io.{FileIOA, FileIOSenseFrameBuffer, Read, ReadShorts, Seek, Write, WriteShorts}
+import me.seravkin.rpi.sense.led.file.io._
 import org.scalatest._
 
 class SenseLedSpecs extends FlatSpec with Matchers  {
@@ -14,29 +14,50 @@ class SenseLedSpecs extends FlatSpec with Matchers  {
 
   private type TestState[A] = State[FileState, A]
 
-  private object FileIOTestInterpreter extends (FileIOA ~> TestState) {
+  private object TestIOSenseFrameBuffer extends SenseFrameBuffer[TestState] {
+    /** Seek file
+      *
+      * @param long length to seek
+      */
+    override def seek(long: Long): TestState[Unit] =
+      State.modify[FileState](_.copy(seek = long.toInt / 2))
 
-    override def apply[A](fa: FileIOA[A]): TestState[A] = fa match {
-      case Seek(long) =>
-        State.modify[FileState](_.copy(seek = (long.toInt / 2)))
-      case Write(int) =>
-        State.modify[FileState](arr => arr.copy(vector = arr.vector.updated(arr.seek, int)))
-      case w @ WriteShorts(shorts) =>
-        State.modify[FileState](arr => arr.copy(vector = shorts.toVector))
-      case Read() =>
-        State.inspect[FileState, Short](st => st.vector(st.seek))
-      case ReadShorts(ln) =>
-        State.inspect[FileState, Array[Short]](st => st.vector.toArray)
-    }
-  }
+    /** Writes Short to file
+      *
+      * @param short Short to write
+      */
+    override def write(short: Short): TestState[Unit] =
+      State.modify[FileState](arr => arr.copy(vector = arr.vector.updated(arr.seek, short)))
 
-  private val led = SenseLed(FileIOSenseFrameBuffer)
+    /** Reads Short from file
+      *
+      * @return Read Short
+      */
+    override def read(): TestState[Short] =
+      State.inspect[FileState, Short](st => st.vector(st.seek))
+
+    /** Writes array to file
+      *
+      * @param shorts Array of shorts to write
+      */
+    override def write(shorts: Array[Short]): TestState[Unit] =
+      State.modify[FileState](arr => arr.copy(vector = shorts.toVector))
+
+    /** Reads array with specified byte length from file
+      *
+      * @param length Bytes to read
+      * @return Read array
+      */
+    override def read(length: Int): TestState[Array[Short]] =
+      State.inspect[FileState, Array[Short]](st => st.vector.toArray)
+}
+
+  private val led = SenseLed(TestIOSenseFrameBuffer)
 
   "SenseLed" should "seek and write LE short for single pixel" in {
 
     val (FileState(_, vector), _) =
       (led(2 -> 3) = Color(255,0,0))
-      .foldMap(FileIOTestInterpreter)
       .run(FileState(0,Vector.fill(64)(0.toShort)))
       .value
 
@@ -49,7 +70,6 @@ class SenseLedSpecs extends FlatSpec with Matchers  {
 
     val (_, color) =
       led(2 -> 3)
-        .foldMap(FileIOTestInterpreter)
         .run(FileState(0, Vector.fill(64)(0.toShort).updated(position, 0xE007.toShort)))
         .value
 
@@ -67,7 +87,6 @@ class SenseLedSpecs extends FlatSpec with Matchers  {
     ) yield read
 
     val (_, readColor) = program
-        .foldMap(FileIOTestInterpreter)
         .run(FileState(0, Vector.fill(64)(0.toShort)))
         .value
 
@@ -83,7 +102,6 @@ class SenseLedSpecs extends FlatSpec with Matchers  {
       led(Array.fill(8,8)(color))
 
     val (FileState(_, vector), _) = program
-      .foldMap(FileIOTestInterpreter)
       .run(FileState(0, Vector.fill(64)(0.toShort)))
       .value
 
@@ -98,7 +116,6 @@ class SenseLedSpecs extends FlatSpec with Matchers  {
     val program = led()
 
     val (_, array) = program
-      .foldMap(FileIOTestInterpreter)
       .run(FileState(0, Vector.fill(64)(0x5086.toShort)))
       .value
 
@@ -118,7 +135,6 @@ class SenseLedSpecs extends FlatSpec with Matchers  {
     ) yield result
 
     val (_, resultArray) = program
-      .foldMap(FileIOTestInterpreter)
       .run(FileState(0, Vector.fill(64)(0.toShort)))
       .value
 
